@@ -40,7 +40,7 @@ function refresh(){draw();save();if(mode==='idle')update();showVideo(Math.min(in
 function beginExercise(){phase='work';holdElapsed=0;phaseDuration=remaining=exercises[index].seconds;said=-1;vibrate();speak(`Start. ${exercises[index].name}${exercises[index].hold?'. Say done when finished':''}`);$('status').textContent=`Exercise ${index+1}: ${exercises[index].name}`;showVideo(index)}
 function completeExercise(){const last=exercises[index];if(index===exercises.length-1){clearInterval(tickId);tickId=null;mode='done';remaining=0;vibrate();speak(`End ${last.name}. Workout complete.`);$('status').textContent='Finished!';update();return}if(last.rest>0){phase='rest';phaseDuration=remaining=last.rest;said=-1;speak(`End ${last.name}. Rest ${last.rest} seconds. Next ${exercises[index+1].name}`)}else{index++;beginExercise()}}
 function advance(){if(phase==='prep'){beginExercise();return}if(phase==='work'){completeExercise();return}index++;beginExercise()}
-function finishHold(){if(mode!=='running'||phase!=='work'||!exercises[index]?.hold)return;let name=exercises[index].name;if(index===exercises.length-1){completeExercise();return}const next=exercises[index+1];index++;let n=config.holdPrep??3;phase='prep';remaining=phaseDuration=n;said=-1;vibrate();speak(`Done. Next: ${next.name}. ${n?`Starting in ${n} seconds`: 'Start now'}`);$('status').textContent=`Finished ${name} after ${holdElapsed} seconds. Next: ${next.name}`;showVideo(index);if(!n)beginExercise();update()}
+function finishHold(){if(mode!=='running'||phase!=='work')return;let name=exercises[index].name;if(index===exercises.length-1){completeExercise();return}const next=exercises[index+1];index++;let n=config.holdPrep??3;phase='prep';remaining=phaseDuration=n;said=-1;vibrate();speak(`Done. Next: ${next.name}. ${n?`Starting in ${n} seconds`: 'Start now'}`);$('status').textContent=`Finished ${name}. Next: ${next.name}`;showVideo(index);if(!n)beginExercise();update()}
 function micMessage(message){$('micStatus').textContent=message;setDiag('diagState',message)}
 function setDiag(id,value){$(id).textContent=String(value)}
 function diagnosticError(code,detail=''){lastRecognitionError=code+(detail?' — '+detail:'');setDiag('diagError',lastRecognitionError)}
@@ -75,11 +75,14 @@ function setupMic(){
  recognition.onresult=e=>{for(let i=e.resultIndex;i<e.results.length;i++){
   const text=e.results[i][0].transcript.trim();if(!text)continue;
   setDiag('diagWords',text+(e.results[i].isFinal?' (final)':' (interim)'));
-  if(!e.results[i].isFinal)continue;
   const transcript=text.toLowerCase();const match=transcript.match(/\b(done|finished|next|stop)\b/i);
+  // A clear one-word interim result can act before Chrome's network finalization.
   if(match){setDiag('diagCommand',match[1].toLowerCase()+' detected');
-   if(mode==='running'&&phase==='work'&&exercises[index]?.hold){if(Date.now()-lastCommandAt>1600){lastCommandAt=Date.now();finishHold()}}
-   else setDiag('diagCommand',match[1].toLowerCase()+' heard; waiting for active hold');
+   if(mode==='running'&&phase==='work'){
+    if(Date.now()-lastCommandAt>4000 && (e.results[i].isFinal || /^(done|finished|next|stop)[.! ]*$/i.test(text))){
+      lastCommandAt=Date.now();setDiag('diagCommand',match[1].toLowerCase()+' accepted — advancing');finishHold();
+    }
+   } else setDiag('diagCommand',match[1].toLowerCase()+' heard; start an exercise first');
   }else setDiag('diagCommand','No matching command');
  }};
  recognition.onerror=e=>{
